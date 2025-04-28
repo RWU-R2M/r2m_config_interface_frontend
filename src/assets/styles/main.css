@@ -1,0 +1,101 @@
+/* Main application styles */
+
+/* Custom Variables */
+:root {
+  --color-success: #23d160;
+  --color-warning: #ffdd57;
+  --color-danger: #ff3860;
+  --color-info: #209cee;
+  --color-primary: #3273dc;
+  --transition-speed: 0.3s;
+}
+
+/* Basic Styles */
+html, body {
+  height: 100%;
+  margin: 0;
+  overflow-x: hidden;
+}
+
+#app {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.module-container {
+  padding: 1rem;
+  margin-bottom: 1rem;
+  border-radius: 6px;
+  box-shadow: 0 2px 3px rgba(10, 10, 10, 0.1);
+  background-color: white;
+}
+
+.status-indicator {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 0.5rem;
+}
+
+.status-running {
+  background-color: var(--color-success);
+}
+
+.status-warning {
+  background-color: var(--color-warning);
+}
+
+.status-stopped {
+  background-color: var(--color-danger);
+}
+
+.loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 100;
+}
+
+/* Dashboard Layout */
+.dashboard {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+  padding: 1rem;
+}
+
+/* Terminal Styles */
+.terminal {
+  background-color: #2b2b2b;
+  color: #f8f8f8;
+  font-family: monospace;
+  padding: 1rem;
+  border-radius: 4px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  max-height: 300px;
+}
+
+/* Error Message */
+.error-message {
+  background-color: #fff5f7;
+  color: var(--color-danger);
+  padding: 0.75rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}
+
+/* Responsive adjustments */
+@media screen and (max-width: 768px) {
+  .dashboard {
+    grid-template-columns: 1fr;
+  }
+}
