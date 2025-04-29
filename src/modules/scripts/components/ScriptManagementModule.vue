@@ -49,25 +49,30 @@
           </div>
           
           <!-- Script Parameters -->
-          <div class="field" v-if="selectedScript.params && selectedScript.params.length > 0">
+          <!-- Check input_schema.properties instead of params -->
+          <div class="field" v-if="selectedScript.input_schema && selectedScript.input_schema.properties && Object.keys(selectedScript.input_schema.properties).length > 0">
             <label class="label">Parameters</label>
             <div class="columns is-multiline">
+              <!-- Iterate over properties object -->
               <div 
-                v-for="param in selectedScript.params" 
-                :key="param.name"
+                v-for="(paramSchema, paramName) in selectedScript.input_schema.properties" 
+                :key="paramName"
                 class="column is-half"
               >
                 <div class="field">
-                  <label class="label is-small">{{ param.name }}</label>
+                  <!-- Use paramName as label -->
+                  <label class="label is-small">{{ paramName }}</label>
                   <div class="control">
                     <input 
                       class="input is-small"
-                      :type="param.type === 'number' ? 'number' : 'text'"
-                      v-model="scriptParams[param.name]"
-                      :placeholder="param.description || ''"
+                      :type="paramSchema.type === 'number' ? 'number' : 'text'"
+                      :value="scriptParams[paramName]"
+                      @input="scriptParams[paramName] = paramSchema.type === 'number' ? Number($event.target.value) : $event.target.value"
+                      :placeholder="paramSchema.description || ''"
                     >
                   </div>
-                  <p class="help" v-if="param.description">{{ param.description }}</p>
+                  <!-- Use paramSchema.description -->
+                  <p class="help" v-if="paramSchema.description">{{ paramSchema.description }}</p>
                 </div>
               </div>
             </div>
@@ -278,13 +283,16 @@ export default {
       // Clear any previous parameters
       scriptParams.value = {};
       
-      // Initialize params with defaults if available
-      if (script.params) {
-        script.params.forEach(param => {
-          if (param.default !== undefined) {
-            scriptParams.value[param.name] = param.default;
+      // Initialize params with defaults if available, reading from input_schema.properties
+      if (script.input_schema && script.input_schema.properties) {
+        Object.keys(script.input_schema.properties).forEach(paramName => {
+          const paramSchema = script.input_schema.properties[paramName];
+          // Use paramSchema.default if available (assuming schema might have defaults)
+          if (paramSchema.default !== undefined) {
+            scriptParams.value[paramName] = paramSchema.default;
           } else {
-            scriptParams.value[param.name] = '';
+            // Initialize based on type
+            scriptParams.value[paramName] = paramSchema.type === 'number' ? 0 : '';
           }
         });
       }
