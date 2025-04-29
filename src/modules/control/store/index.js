@@ -93,7 +93,8 @@ const actions = {
       
       switch(action) {
         case 'emergency-stop':
-          endpoint = '/control/emergency-stop';
+          // Corrected endpoint: remove leading /api, api.service adds it
+          endpoint = '/scripts/emergency_stop_script'; 
           break;
         case 'reboot':
           endpoint = '/control/reboot';
