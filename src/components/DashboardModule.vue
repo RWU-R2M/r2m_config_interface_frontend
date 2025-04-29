@@ -96,10 +96,39 @@ export default {
           
         console.log(`Loading component for ${props.moduleName} from: ${componentFileName}`);
         
-        // Use dynamic import with relative paths instead of @ alias
-        const componentDefinition = await import(
-          `../modules/${props.moduleName}/components/${componentFileName}`
-        );
+        // Map module names to direct import functions based on known modules
+        // This approach works better with Vite's static analysis
+        let componentPromise;
+        
+        /* Handle each module with explicit imports instead of fully dynamic paths */
+        switch (props.moduleName) {
+          case 'terminal':
+            componentPromise = import('../modules/terminal/components/CommandTerminalModule.vue');
+            break;
+          case 'system':
+            componentPromise = import('../modules/system/components/SystemStatusModule.vue');
+            break;
+          case 'docker':
+            componentPromise = import('../modules/docker/components/DockerContainerModule.vue');
+            break;
+          case 'scripts':
+            componentPromise = import('../modules/scripts/components/ScriptManagementModule.vue');
+            break;
+          case 'control':
+            componentPromise = import('../modules/control/components/ControlPanelModule.vue');
+            break;
+          default:
+            // For custom modules, use a vite-ignore comment to suppress the warning
+            // This fallback is needed but will likely not be used often
+            componentPromise = import(
+              /* @vite-ignore */ 
+              `../modules/${props.moduleName}/components/${componentFileName}`
+            );
+            break;
+        }
+        
+        // Process the import result
+        const componentDefinition = await componentPromise;
         
         // Wrap the loaded component with markRaw to avoid reactivity warnings
         moduleComponent.value = markRaw(defineAsyncComponent(() => Promise.resolve(componentDefinition.default)));
