@@ -35,7 +35,7 @@
             </div>
             <div class="level-right">
               <div class="level-item">
-                <span>{{ cpuTemperature }}°C</span>
+                <span>{{ cpuCores }} cores</span>
               </div>
             </div>
           </div>
@@ -131,7 +131,7 @@ export default {
     
     // Computed properties to access store data
     const cpuUsage = computed(() => store.getters['system/cpuUsage']);
-    const cpuTemperature = computed(() => store.getters['system/cpuTemperature']);
+    const cpuCores = computed(() => store.getters['system/cpuCores']);
     const memoryUsage = computed(() => store.getters['system/memoryUsage']);
     const memoryDetails = computed(() => store.getters['system/memoryDetails']);
     const diskUsage = computed(() => store.getters['system/diskUsage']);
@@ -171,7 +171,7 @@ export default {
     
     return {
       cpuUsage,
-      cpuTemperature,
+      cpuCores,
       memoryUsage,
       memoryDetails,
       diskUsage,
