@@ -63,13 +63,11 @@ const mutations = {
       };
     }
     
-    state.lastUpdated = new Date();
-  },
-  SET_NETWORK_DATA(state, data) {
-    // Convert network data from API format to our state format
-    if (data) {
-      const interfaces = Object.keys(data).map(name => {
-        const netInterface = data[name];
+    // If network data is included directly in system status response
+    if (data.network) {
+      // Process network data using the same logic as SET_NETWORK_DATA
+      const interfaces = Object.keys(data.network).map(name => {
+        const netInterface = data.network[name];
         return {
           name,
           bytesReceived: netInterface.bytes_recv || 0,
@@ -89,10 +87,14 @@ const mutations = {
         bytesSent
       };
     }
+    
+    state.lastUpdated = new Date();
   },
+  
   SET_LOADING(state, isLoading) {
     state.isLoading = isLoading;
   },
+  
   SET_ERROR(state, error) {
     state.error = error;
   }
@@ -104,29 +106,15 @@ const actions = {
     commit('SET_ERROR', null);
     
     try {
-      // Fetch system info
-      const systemData = await apiService.getSystemStatus();
+      // Fetch system info with caching enabled
+      const systemData = await apiService.getSystemStatus(true, 5000);
       console.log('System API response:', systemData);
       
       // Set the system data directly from the API response
       commit('SET_SYSTEM_DATA', systemData);
       
-      // If network data is included in the system status response
-      if (systemData && systemData.network) {
-        commit('SET_NETWORK_DATA', systemData.network);
-      } else {
-        // Try to fetch network info from a separate endpoint if available
-        try {
-          const networkData = await apiService.getNetworkInfo();
-          console.log('Network API response:', networkData);
-          if (networkData && networkData.network) {
-            commit('SET_NETWORK_DATA', networkData.network);
-          }
-        } catch (networkError) {
-          console.warn('Could not fetch network information:', networkError);
-          // Don't fail the whole request if network info fails
-        }
-      }
+      // We no longer need a separate call for network info as it should be included
+      // in the system status response. The SET_SYSTEM_DATA mutation handles network data now.
     } catch (error) {
       console.error('Error fetching system data:', error);
       commit('SET_ERROR', {

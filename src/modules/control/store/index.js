@@ -31,13 +31,37 @@ const mutations = {
 };
 
 const actions = {
-  // Add the missing fetchData action that's being called by the dashboard
-  async fetchData({ commit, dispatch }) {
+  // Modified fetchData to use cached system status data
+  async fetchData({ commit, dispatch, rootState }) {
     try {
-      // Get system status information that control panel needs
-      // Changed from getStatus() to getSystemStatus() which is the correct method in apiService
-      const response = await apiService.getSystemStatus();
-      commit('SET_SYSTEM_STATUS', response);
+      // Use cached system status data if available from system module
+      // This prevents redundant API calls for the same information
+      const systemModule = rootState.system;
+      if (systemModule && 
+          systemModule.lastUpdated && 
+          (Date.now() - systemModule.lastUpdated) < 10000) { // within 10 seconds
+        
+        console.log('Control panel using cached system status data');
+        // Extract only the minimal data needed for control panel
+        const minimalStatus = {
+          // Add any specific status fields needed for control panel operation
+          status: systemModule.status || 'unknown',
+          ready: true  // Assuming system is ready if we have data
+        };
+        commit('SET_SYSTEM_STATUS', minimalStatus);
+        return true;
+      }
+      
+      // If no cached data is available, make the API call with caching enabled
+      console.log('Control panel fetching system status data');
+      const response = await apiService.getSystemStatus(true);
+      
+      // Extract only what we need from the response
+      const minimalStatus = {
+        status: response.status || 'unknown',
+        ready: true
+      };
+      commit('SET_SYSTEM_STATUS', minimalStatus);
       return true;
     } catch (error) {
       commit('SET_ERROR', {
@@ -60,35 +84,43 @@ const actions = {
   },
   
   async performAction({ commit, dispatch }, action) {
-    if (!action) return false;
-    
     commit('SET_PERFORMING_ACTION', true);
     commit('SET_ERROR', null);
     
     try {
-      let response;
+      // Different endpoints based on action type
+      let endpoint;
       
-      switch (action) {
+      switch(action) {
+        case 'emergency-stop':
+          endpoint = '/control/emergency-stop';
+          break;
         case 'reboot':
-          // Use executeCommand without sudo (relies on sudoers config)
-          response = await apiService.executeCommand('reboot');
+          endpoint = '/control/reboot';
           break;
         case 'shutdown':
-          // Use executeCommand without sudo (relies on sudoers config)
-          response = await apiService.executeCommand('shutdown now');
-          break;
-        case 'emergency-stop':
-          response = await apiService.runScript('emergency_stop_script', {}); 
+          endpoint = '/control/shutdown';
           break;
         default:
           throw new Error(`Unknown action: ${action}`);
       }
       
+      // Perform the action by posting to the appropriate endpoint
+      const response = await apiService.post(endpoint);
+      
+      // Record the successful action
       commit('SET_LAST_ACTION', action);
+      
+      // Clear the system status cache since the action may change system state
+      apiService.clearCache('/system');
+      
+      // Trigger a refresh of data after action is complete
+      dispatch('global/refreshAll', null, { root: true });
+      
       return true;
     } catch (error) {
       commit('SET_ERROR', {
-        message: `Failed to perform action ${action}: ${error.message}`,
+        message: `Failed to perform action: ${error.message}`,
         details: error
       });
       

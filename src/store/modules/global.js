@@ -146,28 +146,55 @@ const actions = {
       }
     };
     
-    // Dispatch refresh action on all registered modules
-    state.activeModules.forEach(module => {
-      if (module !== 'global') {
-        try {
-          // Use Promise.resolve to handle both synchronous and asynchronous dispatch results
-          Promise.resolve(dispatch(`${module}/fetchData`, null, { root: true }))
-            .then(() => {
-              console.log(`Module ${module} refresh completed`);
-              checkCompletion();
-            })
-            .catch(error => {
-              console.error(`Error refreshing module ${module}:`, error);
-              checkCompletion();
-            });
-        } catch (error) {
-          console.error(`Failed to dispatch fetchData for module ${module}:`, error);
-          checkCompletion();
-        }
-      } else {
-        checkCompletion(); // Skip global module
+    // Group modules by priority to stagger API requests
+    // High priority modules refresh first
+    const highPriorityModules = ['system']; // System data is used by other modules
+    const normalPriorityModules = state.activeModules.filter(
+      module => module !== 'global' && !highPriorityModules.includes(module)
+    );
+    
+    // Process high priority modules first
+    const refreshModule = (module) => {
+      try {
+        // Use Promise.resolve to handle both synchronous and asynchronous dispatch results
+        return Promise.resolve(dispatch(`${module}/fetchData`, null, { root: true }))
+          .then(() => {
+            console.log(`Module ${module} refresh completed`);
+            checkCompletion();
+          })
+          .catch(error => {
+            console.error(`Error refreshing module ${module}:`, error);
+            checkCompletion();
+          });
+      } catch (error) {
+        console.error(`Failed to dispatch fetchData for module ${module}:`, error);
+        checkCompletion();
+        return Promise.resolve(); // Return resolved promise to continue chain
       }
-    });
+    };
+    
+    // Function to process modules with a delay
+    const processWithDelay = (modules, delay) => {
+      if (modules.length === 0) return Promise.resolve();
+      
+      const [currentModule, ...remainingModules] = modules;
+      
+      return refreshModule(currentModule)
+        .then(() => {
+          if (remainingModules.length > 0) {
+            return new Promise(resolve => {
+              setTimeout(() => {
+                resolve(processWithDelay(remainingModules, delay));
+              }, delay);
+            });
+          }
+        });
+    };
+    
+    // Start with high priority modules, then process others with a small delay
+    Promise.resolve()
+      .then(() => processWithDelay(highPriorityModules, 0))
+      .then(() => processWithDelay(normalPriorityModules, 100)); // 100ms delay between normal priority requests
   },
   
   setRefreshInterval({ commit }, interval) {

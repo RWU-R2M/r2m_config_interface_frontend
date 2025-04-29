@@ -11,14 +11,12 @@ const state = {
 
 const mutations = {
   SET_CONTAINERS(state, containers) {
-    // Handle both direct array and {containers: [...]} format
     if (Array.isArray(containers)) {
       state.containers = containers;
     } else if (containers && containers.containers && Array.isArray(containers.containers)) {
       state.containers = containers.containers;
     } else {
-      // Initialize with empty array if data format is unexpected
-      console.error('Unexpected container data format:', containers);
+      console.error('Unexpected containers data format:', containers);
       state.containers = [];
     }
     state.lastUpdated = new Date();
@@ -40,7 +38,8 @@ const actions = {
     commit('SET_ERROR', null);
     
     try {
-      const response = await apiService.getContainers();
+      // Use cache for better performance
+      const response = await apiService.getContainers(true);
       console.log('Docker API response:', response);
       commit('SET_CONTAINERS', response);
     } catch (error) {
@@ -69,7 +68,9 @@ const actions = {
     
     try {
       await apiService.startContainer(containerId);
-      // Refresh the container list
+      // Clear container cache to ensure fresh data on next fetch
+      apiService.clearCache('/docker');
+      // Reload container list
       dispatch('fetchData');
       return true;
     } catch (error) {
@@ -77,6 +78,12 @@ const actions = {
         message: `Failed to start container: ${error.message}`,
         details: error
       });
+      
+      dispatch('global/setError', {
+        module: 'docker',
+        message: `Docker start error: ${error.message}`
+      }, { root: true });
+      
       return false;
     } finally {
       commit('SET_LOADING', false);
@@ -89,7 +96,9 @@ const actions = {
     
     try {
       await apiService.stopContainer(containerId);
-      // Refresh the container list
+      // Clear container cache to ensure fresh data on next fetch
+      apiService.clearCache('/docker');
+      // Reload container list
       dispatch('fetchData');
       return true;
     } catch (error) {
@@ -97,6 +106,12 @@ const actions = {
         message: `Failed to stop container: ${error.message}`,
         details: error
       });
+      
+      dispatch('global/setError', {
+        module: 'docker',
+        message: `Docker stop error: ${error.message}`
+      }, { root: true });
+      
       return false;
     } finally {
       commit('SET_LOADING', false);
@@ -109,7 +124,9 @@ const actions = {
     
     try {
       await apiService.restartContainer(containerId);
-      // Refresh the container list
+      // Clear container cache to ensure fresh data on next fetch
+      apiService.clearCache('/docker');
+      // Reload container list
       dispatch('fetchData');
       return true;
     } catch (error) {
@@ -117,6 +134,12 @@ const actions = {
         message: `Failed to restart container: ${error.message}`,
         details: error
       });
+      
+      dispatch('global/setError', {
+        module: 'docker',
+        message: `Docker restart error: ${error.message}`
+      }, { root: true });
+      
       return false;
     } finally {
       commit('SET_LOADING', false);
@@ -126,14 +149,19 @@ const actions = {
 
 const getters = {
   containers: state => state.containers,
-  runningContainers: state => state.containers.filter(c => c.state === 'running'),
-  stoppedContainers: state => state.containers.filter(c => c.state !== 'running'),
-  containerCount: state => state.containers.length,
-  runningCount: state => state.containers.filter(c => c.state === 'running').length,
-  selectedContainer: state => state.selectedContainer,
   isLoading: state => state.isLoading,
   error: state => state.error,
-  lastUpdated: state => state.lastUpdated
+  lastUpdated: state => state.lastUpdated,
+  selectedContainer: state => state.selectedContainer,
+  getContainerById: state => id => {
+    return state.containers.find(c => c.id === id);
+  },
+  runningContainers: state => {
+    return state.containers.filter(c => c.state === 'running');
+  },
+  stoppedContainers: state => {
+    return state.containers.filter(c => c.state !== 'running');
+  }
 };
 
 export default {

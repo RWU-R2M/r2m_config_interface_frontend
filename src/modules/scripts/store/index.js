@@ -112,13 +112,13 @@ const actions = {
     commit('SET_ERROR', null);
     
     try {
-      // Fetch available scripts
-      const scriptsResponse = await apiService.getScripts();
+      // Fetch available scripts with caching enabled
+      const scriptsResponse = await apiService.getScripts(true);
       console.log('Scripts API response:', scriptsResponse);
       commit('SET_SCRIPTS', scriptsResponse);
       
-      // Fetch running processes
-      const processesResponse = await apiService.getProcesses();
+      // Fetch running processes with caching enabled
+      const processesResponse = await apiService.getProcesses(true);
       console.log('Processes API response:', processesResponse);
       commit('SET_PROCESSES', processesResponse);
       
@@ -126,7 +126,7 @@ const actions = {
       if (state.lastProcessId) {
         console.log('Checking status of last process:', state.lastProcessId);
         try {
-          const processDetails = await apiService.getProcessDetails(state.lastProcessId);
+          const processDetails = await apiService.getProcessDetails(state.lastProcessId, true);
           console.log('Process details response:', processDetails);
           
           // Replace the process in the list with updated data if needed
