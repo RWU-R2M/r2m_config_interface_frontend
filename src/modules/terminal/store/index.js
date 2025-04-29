@@ -4,6 +4,7 @@ import apiService from '@/services/api.service';
 const state = {
   commands: [],
   output: '',
+  isLoading: false,
   isExecuting: false,
   error: null,
   commandHistory: [],
@@ -18,6 +19,9 @@ const state = {
 };
 
 const mutations = {
+  SET_LOADING(state, isLoading) {
+    state.isLoading = isLoading;
+  },
   SET_OUTPUT(state, output) {
     state.output = output;
   },
@@ -109,6 +113,7 @@ const actions = {
 
 const getters = {
   output: state => state.output,
+  isLoading: state => state.isLoading,
   isExecuting: state => state.isExecuting,
   error: state => state.error,
   commandHistory: state => state.commandHistory,
