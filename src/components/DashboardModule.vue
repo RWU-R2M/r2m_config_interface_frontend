@@ -1,64 +1,46 @@
 <template>
-  <div class="dashboard-module">
-    <div class="box">
-      <div class="module-header">
-        <h3 class="title is-5">{{ displayName }}</h3>
-        <div class="module-controls">
-          <!-- Add fold/unfold toggle button -->
-          <button 
-            class="button is-small" 
-            @click="toggleMinimized"
-            title="Toggle module visibility"
-          >
+  <div class="dashboard-module box" :class="{ 'is-minimized': isMinimized }">
+    <div class="module-header level is-mobile">
+      <div class="level-left">
+        <p class="level-item title is-6">{{ formattedModuleName }}</p>
+      </div>
+      <div class="level-right">
+        <div class="level-item buttons are-small">
+          <button class="button" @click="refreshModuleData" :disabled="isLoading" title="Refresh">
             <span class="icon">
-              <i class="fas" :class="isMinimized ? 'fa-expand' : 'fa-compress'"></i>
+              <i class="fas fa-sync" :class="{ 'fa-spin': isLoading }"></i>
             </span>
           </button>
-          <!-- Keep existing refresh button -->
-          <button 
-            class="button is-small" 
-            @click="refreshModule" 
-            :class="{ 'is-loading': isLoading }"
-            title="Refresh module data"
-          >
+          <button class="button" @click="toggleMinimize" title="Minimize/Restore">
             <span class="icon">
-              <i class="fas fa-sync-alt"></i>
+              <i :class="isMinimized ? 'fas fa-expand-alt' : 'fas fa-compress-alt'"></i>
             </span>
           </button>
         </div>
       </div>
-      
-      <div v-if="error" class="notification is-danger is-light">
-        <button class="delete" @click="clearError"></button>
-        Error: {{ error.message }}
+    </div>
+    <div v-if="!isMinimized" class="module-content">
+      <div v-if="error" class="notification is-warning is-light is-size-7 p-2">
+        <button class="delete is-small" @click="clearError"></button>
+        <strong>Error:</strong> {{ error.message || 'Unknown error' }}
+        <p v-if="error.details" class="mt-1">{{ JSON.stringify(error.details) }}</p>
       </div>
-      
-      <!-- Add v-show with animation classes for minimizing -->
-      <div class="module-content" :class="{ 'is-minimized': isMinimized }">
-        <component v-if="loadedComponent" :is="loadedComponent" />
-        <div v-else-if="isLoading" class="has-text-centered p-4">
-          <span class="icon is-large">
-            <i class="fas fa-spinner fa-pulse"></i>
-          </span>
-        </div>
-        <div v-else class="notification is-warning">
-          Module "{{ moduleName }}" not found or not properly registered.
-          <div class="mt-2">
-            <button class="button is-small" @click="attemptReload">
-              <span class="icon is-small">
-                <i class="fas fa-redo"></i>
-              </span>
-              <span>Attempt Reload</span>
-            </button>
-          </div>
-        </div>
+      <div v-if="componentLoading" class="has-text-centered p-4">
+        <span class="icon is-medium">
+          <i class="fas fa-spinner fa-pulse"></i>
+        </span>
+        <p class="is-size-7">Loading module...</p>
+      </div>
+      <component v-else-if="moduleComponent" :is="moduleComponent" />
+      <div v-else class="notification is-light p-3">
+        Module component not found or failed to load.
       </div>
     </div>
   </div>
 </template>
 
 <script>
-import { ref, computed, defineAsyncComponent, onMounted, watch } from 'vue';
+import { ref, computed, defineAsyncComponent, onMounted, watch, markRaw } from 'vue'; // Import markRaw
 import { useStore } from 'vuex';
 
 export default {
@@ -76,124 +58,118 @@ export default {
   emits: ['toggle-minimized'],
   setup(props, { emit }) {
     const store = useStore();
-    const loadedComponent = ref(null);
-    const loadError = ref(null);
-    
-    // Global state
-    const isLoading = computed(() => {
-      // Check if module exists first
-      if (store.hasModule(props.moduleName)) {
-        return store.getters[`${props.moduleName}/isLoading`] || false;
-      }
-      return false;
-    });
-    
-    const error = computed(() => {
-      // Check for module-specific error first
-      if (store.hasModule(props.moduleName)) {
-        return store.getters[`${props.moduleName}/error`] || null;
-      }
-      // Return load error if we have one
-      return loadError.value;
-    });
-    
-    // Format the module name for display (capitalize and add spaces)
-    const displayName = computed(() => {
+    const moduleComponent = ref(null);
+    const componentLoading = ref(true);
+    const componentError = ref(null);
+
+    // Computed properties for module state
+    const isLoading = computed(() => store.getters[`${props.moduleName}/isLoading`] || false);
+    const error = computed(() => store.getters[`${props.moduleName}/error`]);
+
+    // Format module name for display
+    const formattedModuleName = computed(() => {
       return props.moduleName
-        .replace(/([A-Z])/g, ' $1') // Add space before capital letters
-        .replace(/^./, str => str.toUpperCase()) // Capitalize first letter
+        .replace(/([A-Z])/g, ' $1')
+        .replace(/^./, str => str.toUpperCase())
         .trim();
     });
-    
-    // Toggle minimized state
-    const toggleMinimized = () => {
+
+    // Load the specific module component dynamically
+    const loadComponent = async () => {
+      componentLoading.value = true;
+      componentError.value = null;
+      moduleComponent.value = null; // Reset component ref
+      
+      try {
+        // Map module names to their corresponding component filenames
+        const moduleComponentMap = {
+          'terminal': 'CommandTerminalModule.vue',
+          'system': 'SystemStatusModule.vue',
+          'docker': 'DockerContainerModule.vue',
+          'scripts': 'ScriptManagementModule.vue',
+          'control': 'ControlPanelModule.vue'
+        };
+        
+        // Use the mapping if available, otherwise use the default convention
+        const componentFileName = moduleComponentMap[props.moduleName] || 
+          `${formattedModuleName.value.replace(/\s+/g, '')}Module.vue`;
+          
+        console.log(`Loading component for ${props.moduleName} from: ${componentFileName}`);
+        
+        // Use dynamic import with relative paths instead of @ alias
+        const componentDefinition = await import(
+          `../modules/${props.moduleName}/components/${componentFileName}`
+        );
+        
+        // Wrap the loaded component with markRaw to avoid reactivity warnings
+        moduleComponent.value = markRaw(defineAsyncComponent(() => Promise.resolve(componentDefinition.default)));
+        console.log(`Component for module "${props.moduleName}" loaded successfully`);
+      } catch (e) {
+        console.error(`Error loading component for module ${props.moduleName}:`, e);
+        componentError.value = { message: `Failed to load component for ${props.moduleName}.`, details: e };
+        // Dispatch a global error for the UI to display
+        store.dispatch('global/setError', { 
+            module: 'DashboardModule', 
+            message: `Failed to load component for ${props.moduleName}`,
+            details: e.message
+        });
+      } finally {
+        componentLoading.value = false;
+      }
+    };
+
+    // Function to refresh module data
+    const refreshModuleData = () => {
+      const actionName = `${props.moduleName}/fetchData`;
+      // Check if the module exists and dispatch the action
+      if (store.hasModule(props.moduleName)) {
+         console.log(`Refreshing module: ${props.moduleName}`);
+         store.dispatch(actionName).catch(err => {
+           console.error(`Error refreshing module ${props.moduleName}:`, err);
+           // Error is usually handled within the module's store action, but catch here too
+         });
+      } else {
+         console.warn(`Module ${props.moduleName} not found in store. Skipping refresh.`);
+      }
+    };
+
+    // Function to clear local module error
+    const clearError = () => {
+      const mutationName = `${props.moduleName}/SET_ERROR`;
+       if (store.hasModule(props.moduleName) && store.mutations.hasOwnProperty(mutationName)) {
+           store.commit(mutationName, null);
+       } else {
+            console.warn(`Mutation ${mutationName} not found for module ${props.moduleName}. Cannot clear error.`);
+       }
+    };
+
+    // Toggle minimize state by emitting an event
+    const toggleMinimize = () => {
       emit('toggle-minimized');
     };
-    
-    // Attempt to dynamically import the component
-    const loadComponent = async () => {
-      try {
-        loadError.value = null;
-        
-        // The module registry approach
-        const components = {
-          'system': defineAsyncComponent(() => import('@/modules/system/components/SystemStatusModule.vue')),
-          'docker': defineAsyncComponent(() => import('@/modules/docker/components/DockerContainerModule.vue')),
-          'terminal': defineAsyncComponent(() => import('@/modules/terminal/components/CommandTerminalModule.vue')),
-          'scripts': defineAsyncComponent(() => import('@/modules/scripts/components/ScriptManagementModule.vue')),
-          'control': defineAsyncComponent(() => import('@/modules/control/components/ControlPanelModule.vue'))
-        };
-        
-        if (components[props.moduleName]) {
-          loadedComponent.value = components[props.moduleName];
-          console.log(`Component for module "${props.moduleName}" loaded successfully`);
-        } else {
-          console.error(`Module component for "${props.moduleName}" not found in registry`);
-          loadError.value = {
-            message: `Component for module "${props.moduleName}" not found`
-          };
-        }
-      } catch (err) {
-        console.error(`Failed to load module "${props.moduleName}":`, err);
-        loadError.value = {
-          message: `Failed to load: ${err.message}`
-        };
-      }
-    };
-    
-    // Refresh the module data
-    const refreshModule = () => {
-      if (store.hasModule(props.moduleName)) {
-        console.log(`Refreshing module: ${props.moduleName}`);
-        store.dispatch(`${props.moduleName}/fetchData`);
-      } else {
-        console.warn(`Module "${props.moduleName}" not registered with store`);
-        loadError.value = {
-          message: `Module "${props.moduleName}" not registered with store`
-        };
-      }
-    };
-    
-    // Clear module error
-    const clearError = () => {
-      if (store.hasModule(props.moduleName)) {
-        store.dispatch(`${props.moduleName}/clearError`);
-      }
-      loadError.value = null;
-    };
-    
-    // Attempt to reload the module
-    const attemptReload = () => {
-      console.log(`Attempting to reload module: ${props.moduleName}`);
-      loadComponent();
-      refreshModule();
-    };
-    
-    // Watch for changes to the module name prop
-    watch(() => props.moduleName, (newName, oldName) => {
-      if (newName !== oldName) {
-        console.log(`Module name changed from ${oldName} to ${newName}, reloading`);
-        loadComponent();
-        refreshModule();
-      }
-    });
-    
-    // Load component on mount
+
+    // Load component when the moduleName prop changes (though unlikely in current setup)
+    watch(() => props.moduleName, loadComponent, { immediate: true });
+
+    // Initial data fetch on mount if not minimized
     onMounted(() => {
-      loadComponent();
-      refreshModule();
+      if (!props.isMinimized) {
+        // Delay initial fetch slightly to allow component rendering
+        // setTimeout(refreshModuleData, 100);
+        // No need to call refreshModuleData here, global refreshAll handles it
+      }
     });
-    
+
     return {
-      loadedComponent,
+      moduleComponent,
+      componentLoading,
+      componentError, // Expose component loading error state
       isLoading,
       error,
-      displayName,
-      refreshModule,
+      formattedModuleName,
+      refreshModuleData,
       clearError,
-      attemptReload,
-      isMinimized: computed(() => props.isMinimized),
-      toggleMinimized
+      toggleMinimize
     };
   }
 };
@@ -204,42 +180,36 @@ export default {
   height: 100%;
   display: flex;
   flex-direction: column;
-}
-
-.box {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  padding: 1rem;
-  margin: 0; /* Remove margin for grid layout */
+  overflow: hidden; /* Prevent content overflow */
 }
 
 .module-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
-  cursor: move; /* Indicate the header can be used to drag */
+  background-color: #f5f5f5;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #dbdbdb;
+  flex-shrink: 0; /* Prevent header from shrinking */
+}
+
+.module-header .title {
+  margin-bottom: 0; /* Override Bulma default */
 }
 
 .module-content {
-  flex: 1;
-  overflow: auto;
-  transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
-  max-height: 1000px; /* Set a high initial value */
-  opacity: 1;
+  padding: 0.75rem;
+  flex-grow: 1; /* Allow content to fill available space */
+  overflow-y: auto; /* Add scroll if content overflows */
 }
 
-.module-content.is-minimized {
-  max-height: 0;
-  opacity: 0;
-  overflow: hidden;
-  margin: 0;
-  padding: 0;
+.dashboard-module.is-minimized .module-content {
+  display: none;
 }
 
-.module-controls {
-  display: flex;
-  gap: 0.5rem;
+/* Add styles for loading/error states within the module */
+.notification.is-warning {
+    font-size: 0.8rem;
+}
+.notification .delete {
+    right: 0.5rem;
+    top: 0.5rem;
 }
 </style>

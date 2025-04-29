@@ -10,7 +10,8 @@ const state = {
   selectedScript: null,
   scriptOutput: '',
   lastUpdated: null,
-  lastProcessId: null // Track the last executed process
+  lastProcessId: null, // Track the last executed process
+  lastRunResult: null  // Store the result of the last script execution
 };
 
 const mutations = {
@@ -80,6 +81,9 @@ const mutations = {
   },
   SET_LAST_PROCESS_ID(state, processId) {
     state.lastProcessId = processId;
+  },
+  SET_LAST_RUN_RESULT(state, result) {
+    state.lastRunResult = result;
   }
 };
 
@@ -208,99 +212,50 @@ const actions = {
     commit('CLEAR_SCRIPT_OUTPUT');
   },
   
-  async executeScript({ commit, dispatch, state }, { scriptId, params = {} }) {
-    if (!scriptId) return false;
-    
-    commit('SET_EXECUTING', true);
-    commit('SET_ERROR', null);
-    commit('APPEND_SCRIPT_OUTPUT', `Executing script ${scriptId}...\n`);
+  async runScript({ commit, dispatch }, { scriptId, params }) {
+    commit('SET_LOADING', true);
+    commit('SET_EXECUTING', true); // Set executing state to true
+    commit('SET_ERROR', null); // Clear previous errors
+    commit('SET_LAST_RUN_RESULT', null); // Clear previous results
+    commit('CLEAR_SCRIPT_OUTPUT'); // Clear previous output
     
     try {
-      console.log(`Executing script: ${scriptId} with params:`, params);
       const response = await apiService.runScript(scriptId, params);
-      console.log('Script execution response:', response);
+      commit('SET_LAST_RUN_RESULT', response);
       
-      // Clear any previous process ID
-      commit('SET_LAST_PROCESS_ID', null);
-      
-      // Handle different response formats
-      let processId = null;
-      
-      if (response && response.process_id) {
-        // API format: { process_id: "123", ... }
-        processId = response.process_id;
-        commit('APPEND_SCRIPT_OUTPUT', `Process started with ID: ${processId}\n`);
-      } else if (response && response.processId) {
-        // API format: { processId: "123", ... }
-        processId = response.processId;
-        commit('APPEND_SCRIPT_OUTPUT', `Process started with ID: ${processId}\n`);
-      } else if (response && response.async === true) {
-        // Look for any process ID in the response
-        processId = response.process_id || response.processId || response.id;
-        if (processId) {
-          commit('APPEND_SCRIPT_OUTPUT', `Async process started with ID: ${processId}\n`);
+      // Update the script output with the response data
+      if (response) {
+        // Handle different response formats
+        if (typeof response === 'string') {
+          commit('SET_SCRIPT_OUTPUT', response);
+        } else if (response.output || response.stdout) {
+          // Try to get output from response.output or response.stdout
+          commit('SET_SCRIPT_OUTPUT', response.output || response.stdout || '');
         } else {
-          commit('APPEND_SCRIPT_OUTPUT', 'Async process started (no process ID returned)\n');
+          // If no string output, format the JSON response for display
+          commit('SET_SCRIPT_OUTPUT', 'Result: ' + JSON.stringify(response, null, 2));
         }
-      } else if (response && response.success === true) {
-        // API format: { success: true, message: "...", ... }
-        const message = response.message || 'Script executed successfully';
-        commit('APPEND_SCRIPT_OUTPUT', `${message}\n`);
         
-        // Check if there's a process ID in the response
-        processId = response.process_id || response.processId;
-        
-        // If there's output data, display it
-        if (response.output || response.data) {
-          const outputData = response.output || response.data || {};
-          const formattedOutput = JSON.stringify(outputData, null, 2);
-          commit('APPEND_SCRIPT_OUTPUT', `\nOutput:\n${formattedOutput}\n`);
-        }
-      } else {
-        // Generic success response with minimal information
-        commit('APPEND_SCRIPT_OUTPUT', 'Script executed successfully\n');
-        
-        // If the response itself is meaningful, print it
-        if (response && typeof response !== 'string') {
-          // Check if there's a process ID in the response
-          processId = response.process_id || response.processId;
-          
-          const formattedOutput = JSON.stringify(response, null, 2);
-          commit('APPEND_SCRIPT_OUTPUT', `\nOutput:\n${formattedOutput}\n`);
-        } else if (typeof response === 'string') {
-          commit('APPEND_SCRIPT_OUTPUT', `\n${response}\n`);
+        // If the response contains a process ID, store it for tracking
+        if (response.process_id || response.id || response.processId) {
+          const processId = response.process_id || response.id || response.processId;
+          commit('SET_LAST_PROCESS_ID', processId);
         }
       }
       
-      // If we found a process ID, save it and refresh processes
-      if (processId) {
-        console.log('Saving last process ID:', processId);
-        commit('SET_LAST_PROCESS_ID', processId);
-      }
-      
-      // Refresh processes list to get status
+      // Refresh process list to show the new process
       dispatch('fetchData');
-      
-      return processId || true;
+      return true;
     } catch (error) {
-      console.error('Script execution error:', error);
-      
-      // Extract the error message from different possible formats
-      let errorMessage = 'Unknown error occurred';
-      
-      if (error.data && error.data.error) {
-        errorMessage = error.data.error;
-      } else if (error.message) {
-        errorMessage = error.message;
-      } else if (typeof error === 'string') {
-        errorMessage = error;
-      }
-      
-      commit('APPEND_SCRIPT_OUTPUT', `Error: ${errorMessage}\n`);
-      commit('SET_ERROR', {
-        message: `Failed to execute script: ${errorMessage}`,
-        details: error
+      // Store the error message from the API response
+      const errorMessage = error.data?.error || error.message || 'Failed to run script';
+      commit('SET_ERROR', { 
+        message: errorMessage,
+        details: error.data || error 
       });
+      
+      // Also display error in script output
+      commit('SET_SCRIPT_OUTPUT', 'Error: ' + errorMessage);
       
       // Notify global state about error
       dispatch('global/setError', {
@@ -310,7 +265,8 @@ const actions = {
       
       return false;
     } finally {
-      commit('SET_EXECUTING', false);
+      commit('SET_LOADING', false);
+      commit('SET_EXECUTING', false); // Set executing state back to false
     }
   },
   

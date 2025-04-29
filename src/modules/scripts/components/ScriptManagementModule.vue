@@ -241,7 +241,14 @@ export default {
     
     // Format the output with newlines converted to <br>
     const formattedOutput = computed(() => {
-      return scriptOutput.value
+      // Ensure scriptOutput is a string before using string methods
+      if (!scriptOutput.value) return '';
+      
+      const outputStr = typeof scriptOutput.value === 'string' 
+        ? scriptOutput.value 
+        : JSON.stringify(scriptOutput.value, null, 2);
+      
+      return outputStr
         .replace(/\n/g, '<br>')
         .replace(/ /g, '&nbsp;');
     });
@@ -288,7 +295,7 @@ export default {
         // Use script name instead of id since that's what the backend expects
         const scriptId = selectedScript.value.name || selectedScript.value.endpoint || selectedScript.value.id;
         console.log('Executing script:', scriptId, 'with params:', scriptParams.value);
-        store.dispatch('scripts/executeScript', {
+        store.dispatch('scripts/runScript', {
           scriptId: scriptId,
           params: scriptParams.value
         }).then(result => {

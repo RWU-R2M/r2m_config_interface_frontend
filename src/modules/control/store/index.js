@@ -70,13 +70,15 @@ const actions = {
       
       switch (action) {
         case 'reboot':
-          response = await apiService.reboot();
+          // Use executeCommand without sudo (relies on sudoers config)
+          response = await apiService.executeCommand('reboot');
           break;
         case 'shutdown':
-          response = await apiService.shutdown();
+          // Use executeCommand without sudo (relies on sudoers config)
+          response = await apiService.executeCommand('shutdown now');
           break;
         case 'emergency-stop':
-          response = await apiService.emergencyStop();
+          response = await apiService.runScript('emergency_stop_script', {}); 
           break;
         default:
           throw new Error(`Unknown action: ${action}`);

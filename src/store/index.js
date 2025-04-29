@@ -1,4 +1,4 @@
-import { createStore } from 'vuex';
+import { createStore } from 'vuex'; // Use Pinia!!!
 import global from './modules/global';
 
 // Create a new store instance

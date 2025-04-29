@@ -26,7 +26,7 @@
         <div class="container-list">
           <div 
             v-for="container in containers" 
-            :key="container.id" 
+            :key="container.ID" 
             class="container-item"
             @click="selectContainer(container)"
           >
@@ -35,14 +35,14 @@
                 <div class="level-item">
                   <span 
                     class="status-indicator"
-                    :class="container.state === 'running' ? 'status-running' : 'status-stopped'"
+                    :class="container.State === 'running' ? 'status-running' : 'status-stopped'"
                   ></span>
                 </div>
                 <div class="level-item">
                   <div>
-                    <strong>{{ container.name }}</strong>
+                    <strong>{{ container.Name }}</strong>
                     <br>
-                    <small>{{ container.image }}</small>
+                    <small>{{ container.Image }}</small>
                   </div>
                 </div>
               </div>
@@ -50,9 +50,9 @@
                 <div class="level-item">
                   <div class="buttons are-small">
                     <button 
-                      v-if="container.state === 'running'"
+                      v-if="container.State === 'running'"
                       class="button is-light" 
-                      @click.stop="stopContainer(container.id)"
+                      @click.stop="stopContainer(container.ID)"
                       :disabled="isLoading"
                     >
                       <span class="icon">
@@ -62,7 +62,7 @@
                     <button 
                       v-else
                       class="button is-success" 
-                      @click.stop="startContainer(container.id)"
+                      @click.stop="startContainer(container.ID)"
                       :disabled="isLoading"
                     >
                       <span class="icon">
@@ -71,8 +71,8 @@
                     </button>
                     <button 
                       class="button is-info" 
-                      @click.stop="restartContainer(container.id)"
-                      :disabled="isLoading || container.state !== 'running'"
+                      @click.stop="restartContainer(container.ID)"
+                      :disabled="isLoading || container.State !== 'running'"
                     >
                       <span class="icon">
                         <i class="fas fa-sync"></i>
@@ -98,33 +98,32 @@
             <div v-if="selectedContainer">
               <div class="field">
                 <label class="label">Name</label>
-                <p>{{ selectedContainer.name }}</p>
+                <p>{{ selectedContainer.Name }}</p>
               </div>
               <div class="field">
                 <label class="label">Image</label>
-                <p>{{ selectedContainer.image }}</p>
+                <p>{{ selectedContainer.Image }}</p>
               </div>
               <div class="field">
                 <label class="label">Status</label>
                 <p>
                   <span 
                     class="tag"
-                    :class="selectedContainer.state === 'running' ? 'is-success' : 'is-danger'"
+                    :class="selectedContainer.State === 'running' ? 'is-success' : 'is-danger'"
                   >
-                    {{ selectedContainer.state }}
+                    {{ selectedContainer.State }}
                   </span>
                 </p>
               </div>
               <div class="field">
                 <label class="label">Created</label>
-                <p>{{ new Date(selectedContainer.created).toLocaleString() }}</p>
+                <p>{{ formatDockerDate(selectedContainer.CreatedAt) }}</p>
               </div>
               <div class="field">
                 <label class="label">Ports</label>
-                <div v-if="selectedContainer.ports && selectedContainer.ports.length">
-                  <div v-for="(port, index) in selectedContainer.ports" :key="index">
-                    {{ port.hostPort }}:{{ port.containerPort }}/{{ port.protocol }}
-                  </div>
+                <div v-if="selectedContainer.Ports && selectedContainer.Ports.length">
+                  <p>{{ selectedContainer.Ports }}</p> 
+                  <!-- TODO: Add better parsing for port string if needed -->
                 </div>
                 <p v-else>No ports exposed</p>
               </div>
@@ -199,6 +198,30 @@ export default {
       refreshData();
     });
     
+    // Helper function to format Docker date string
+    const formatDockerDate = (dateString) => {
+      if (!dateString) return 'Invalid Date';
+      // Basic attempt to parse Docker's date format
+      // Example: "2024-01-15 10:30:00 +0000 UTC"
+      // More robust parsing might be needed depending on exact format variations
+      try {
+        // Try direct parsing first
+        const date = new Date(dateString);
+        if (!isNaN(date.getTime())) {
+          return date.toLocaleString();
+        }
+        // Fallback for formats like "YYYY-MM-DD HH:MM:SS +/-ZZZZ UTC"
+        const simplified = dateString.substring(0, 19).replace(' ', 'T') + 'Z'; // Assume UTC
+        const fallbackDate = new Date(simplified);
+        if (!isNaN(fallbackDate.getTime())) {
+          return fallbackDate.toLocaleString();
+        }
+      } catch (e) {
+        console.error("Error parsing date:", dateString, e);
+      }
+      return dateString; // Return original string if parsing fails
+    };
+
     return {
       containers,
       runningCount,
@@ -212,7 +235,8 @@ export default {
       closeDetails,
       startContainer,
       stopContainer,
-      restartContainer
+      restartContainer,
+      formatDockerDate
     };
   }
 };

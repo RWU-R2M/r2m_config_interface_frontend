@@ -43,61 +43,51 @@ const mutations = {
 };
 
 const actions = {
-  // Add the missing fetchData action that's being called by the dashboard
-  async fetchData({ commit, dispatch }) {
-    // For the terminal module, this might just check connectivity
-    try {
-      // Use getSystemStatus() instead of getStatus() which doesn't exist
-      const healthCheck = await apiService.getSystemStatus();
-      return true;
-    } catch (error) {
-      commit('SET_ERROR', {
-        message: `Failed to connect to terminal service: ${error.message}`,
-        details: error
-      });
-      
-      // Notify global state about error
-      dispatch('global/setError', {
-        module: 'terminal',
-        message: `Terminal connectivity error: ${error.message}`
-      }, { root: true });
-      
-      return false;
-    }
+  async fetchData({ commit }) {
+    // Terminal module doesn't need to fetch initial data,
+    // but we implement this to maintain consistency with other modules
+    console.log('Terminal module fetchData called - no operation needed');
+    return Promise.resolve(); // Return resolved promise for consistency
   },
   
   async executeCommand({ commit, dispatch }, command) {
-    if (!command.trim()) return;
-    
-    commit('SET_EXECUTING', true);
-    commit('SET_ERROR', null);
-    commit('APPEND_OUTPUT', `> ${command}\n`);
+    commit('SET_LOADING', true);
+    commit('APPEND_OUTPUT', `\n> ${command}`); // Echo command
+    commit('SET_ERROR', null); // Clear previous errors
     
     try {
       const response = await apiService.executeCommand(command);
       
-      // The backend returns stdout/stderr fields, not output
-      if (response && response.stdout) {
-        commit('APPEND_OUTPUT', response.stdout + '\n');
-      } else if (response && response.stderr) {
-        commit('APPEND_OUTPUT', response.stderr + '\n');
-      } else {
-        commit('APPEND_OUTPUT', 'Command executed successfully (no output)\n');
+      // Append stdout if it exists
+      if (response.stdout) {
+        commit('APPEND_OUTPUT', `\n${response.stdout.trim()}`);
       }
       
-      // Add to command history
-      commit('ADD_TO_HISTORY', command);
-      
+      // Append stderr if it exists (treat as error/warning)
+      if (response.stderr) {
+        commit('APPEND_OUTPUT', `\n[ERROR] ${response.stderr.trim()}`);
+        // Optionally set a separate error state if needed
+        // commit('SET_ERROR', { message: response.stderr.trim() });
+      }
+
+      // If the command itself reported an error (e.g., timeout, execution failure)
+      if (response.error) {
+          commit('APPEND_OUTPUT', `\n[SYSTEM ERROR] ${response.error}`);
+          // commit('SET_ERROR', { message: response.error });
+      }
+
+      // Check return code for success/failure indication
+      if (response.returncode !== 0 && !response.stderr && !response.error) {
+          commit('APPEND_OUTPUT', `\n[Command failed with return code ${response.returncode}]`);
+      }
+
       return true;
     } catch (error) {
-      const errorMessage = error.data && error.data.error 
-        ? error.data.error 
-        : (error.message || 'Unknown error occurred');
-        
-      commit('APPEND_OUTPUT', `${errorMessage}\n`);
-      commit('SET_ERROR', {
-        message: `Failed to execute command: ${errorMessage}`,
-        details: error
+      const errorMessage = error.data?.error || error.message || 'Failed to execute command';
+      commit('APPEND_OUTPUT', `\n[API ERROR] ${errorMessage}`);
+      commit('SET_ERROR', { 
+        message: errorMessage,
+        details: error.data || error 
       });
       
       // Notify global state about error
@@ -108,7 +98,7 @@ const actions = {
       
       return false;
     } finally {
-      commit('SET_EXECUTING', false);
+      commit('SET_LOADING', false);
     }
   },
   

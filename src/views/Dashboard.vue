@@ -93,6 +93,7 @@
 <script>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useStore } from 'vuex';
+import { useDebounceFn } from '@vueuse/core';
 import DashboardModule from '@/components/DashboardModule.vue';
 import { GridLayout, GridItem } from 'vue3-grid-layout';
 
@@ -108,12 +109,36 @@ export default {
     const gridLoaded = ref(false);
     const layoutError = ref(false);
     const layoutItems = ref([]);
-    const minimizedModules = ref([]); // Now an array of module names
+    
+    // Load minimized modules from localStorage with proper validation
+    const minimizedModules = ref((() => {
+      try {
+        const stored = localStorage.getItem('minimizedModules');
+        if (!stored) return [];
+        
+        const parsed = JSON.parse(stored);
+        // Ensure it's an array
+        if (!Array.isArray(parsed)) {
+          console.warn('minimizedModules in localStorage is not an array, resetting to empty array');
+          localStorage.removeItem('minimizedModules');
+          return [];
+        }
+        return parsed;
+      } catch (e) {
+        console.error('Error parsing minimizedModules from localStorage:', e);
+        localStorage.removeItem('minimizedModules');
+        return [];
+      }
+    })());
+    
     const previousHeights = ref({});
-    const minimizedBarWidth = ref(parseInt(localStorage.getItem('minimizedBarWidth')) || 60); // Default width
+    const minimizedBarWidth = ref(parseInt(localStorage.getItem('minimizedBarWidth')) || 60);
     const isResizing = ref(false);
     const startX = ref(0);
     const startWidth = ref(0);
+    
+    // Track whether layout has been initialized from localStorage
+    const layoutInitialized = ref(false);
 
     // Get global state values
     const isLoading = computed(() => store.getters['global/isLoading']);
@@ -122,6 +147,12 @@ export default {
     
     // Format the module name for display
     const formatModuleName = (moduleName) => {
+      // Check if moduleName is a string, if not return it as is or a default value
+      if (typeof moduleName !== 'string') {
+        console.warn(`formatModuleName received non-string value: ${moduleName}`);
+        return moduleName?.toString() || 'Module';
+      }
+      
       return moduleName
         .replace(/([A-Z])/g, ' $1') // Add space before capital letters
         .replace(/^./, str => str.toUpperCase()) // Capitalize first letter
@@ -156,11 +187,27 @@ export default {
       }
     };
 
-    // Cleanup listeners when component is unmounted
-    onUnmounted(() => {
-      document.removeEventListener('mousemove', handleResize);
-      document.removeEventListener('mouseup', stopResize);
-    });
+    // Save layout to localStorage without debouncing
+    const saveLayoutToLocalStorage = (layout) => {
+      console.log('Saving layout to localStorage...');
+      try {
+        // Only include active modules in the layout (exclude minimized ones)
+        const activeLayout = layout.filter(item => !minimizedModules.value.includes(item.i));
+        localStorage.setItem('dashboardLayout', JSON.stringify(activeLayout));
+        console.log('Layout saved successfully');
+      } catch (e) {
+        console.error('Error saving layout to localStorage:', e);
+      }
+    };
+
+    // Update layout when grid items are moved or resized
+    const layoutUpdated = (newLayout) => {
+      console.log('Layout updated event triggered');
+      // Update internal state
+      layoutItems.value = newLayout;
+      // Save to localStorage immediately
+      saveLayoutToLocalStorage(newLayout);
+    };
     
     // Clear any global errors
     const clearError = () => {
@@ -178,72 +225,144 @@ export default {
     const minimizeModule = (moduleId) => {
       if (!minimizedModules.value.includes(moduleId)) {
         minimizedModules.value.push(moduleId);
-        // Optionally, store previous height if you want to restore
+        localStorage.setItem('minimizedModules', JSON.stringify(minimizedModules.value));
         const idx = layoutItems.value.findIndex(item => item.i === moduleId);
         if (idx !== -1) {
           previousHeights.value[moduleId] = layoutItems.value[idx].h;
         }
+        // Save layout after minimizing
+        saveLayoutToLocalStorage(layoutItems.value);
       }
     };
     
     // Restore a module (remove from bar, add to grid)
     const restoreModule = (moduleId) => {
+      // First remove the module from minimized list
       minimizedModules.value = minimizedModules.value.filter(m => m !== moduleId);
-      // Optionally, restore previous height
+      localStorage.setItem('minimizedModules', JSON.stringify(minimizedModules.value));
+      
+      // Check if the module already exists in layoutItems
       const idx = layoutItems.value.findIndex(item => item.i === moduleId);
-      if (idx !== -1 && previousHeights.value[moduleId]) {
-        layoutItems.value[idx].h = previousHeights.value[moduleId];
+      
+      if (idx !== -1) {
+        // If module exists in layout, just restore its previous height if we have it
+        if (previousHeights.value[moduleId]) {
+          layoutItems.value[idx].h = previousHeights.value[moduleId];
+        }
+      } else {
+        // If module is not in layoutItems (e.g., after page refresh), add it with default values
+        console.log(`Adding module ${moduleId} back to layout after restore`);
+        
+        // Find a reasonable position for the restored module
+        // Either below existing modules or in a default 2-column layout
+        let y = 0;
+        let x = 0;
+        
+        if (layoutItems.value.length > 0) {
+          // Find the maximum y position plus height to place the module below existing ones
+          const maxY = Math.max(...layoutItems.value.map(item => item.y + item.h));
+          y = maxY;
+          
+          // Alternate between left and right columns
+          x = layoutItems.value.length % 2 === 0 ? 0 : 6;
+        }
+        
+        // Create new layout item with default size
+        const newItem = { 
+          i: moduleId, 
+          x: x,
+          y: y, 
+          w: 6, 
+          h: previousHeights.value[moduleId] || 4, // Use previous height if available
+          minW: 2, 
+          minH: 2 
+        };
+        
+        layoutItems.value.push(newItem);
       }
-    };
-    
-    // Update layout when grid items are moved or resized
-    const layoutUpdated = (newLayout) => {
-      layoutItems.value = newLayout;
-      localStorage.setItem('dashboardLayout', JSON.stringify(newLayout));
+      
+      // Save layout after restoring
+      saveLayoutToLocalStorage(layoutItems.value);
     };
     
     // Reset dashboard layout
     const resetLayout = () => {
-      // Clear all stored layout data
       localStorage.removeItem('dashboardLayout');
-      localStorage.removeItem('dashboardPages');
-      localStorage.removeItem('currentDashboardPage');
       localStorage.removeItem('minimizedModules');
       localStorage.removeItem('minimizedBarWidth');
       
-      // Force page reload to start fresh
-      window.location.reload();
+      // Reset state variables
+      minimizedModules.value = [];
+      minimizedBarWidth.value = 60;
+      layoutItems.value = [];
+      
+      // Create a new default layout
+      setupDefaultLayout();
+      
+      // Save the default layout
+      saveLayoutToLocalStorage(layoutItems.value);
+    };
+
+    // Set up default layout for all active modules
+    const setupDefaultLayout = () => {
+      console.log('Creating default layout');
+      layoutItems.value = activeModules.value.map((module, index) => {
+        const x = index % 2 === 0 ? 0 : 6;
+        const itemY = Math.floor(index / 2) * 4;
+        return { i: module, x, y: itemY, w: 6, h: 4, minW: 2, minH: 2 };
+      });
+      gridLoaded.value = true;
     };
     
-    // Set up initial layout
+    // Set up initial layout (either from storage or default)
     const setupLayout = () => {
       try {
-        // Clear previous state
         layoutError.value = false;
         
-        // Create default layout
-        if (activeModules.value.length > 0) {
-          layoutItems.value = activeModules.value.map((module, index) => {
-            const x = index % 2 === 0 ? 0 : 6; // Alternate between left and right columns
-            const itemY = Math.floor(index / 2) * 4; // Stack vertically, 2 per row
+        // Try to load saved layout from localStorage
+        const savedLayoutStr = localStorage.getItem('dashboardLayout');
+        if (savedLayoutStr) {
+          try {
+            const savedLayout = JSON.parse(savedLayoutStr);
             
-            return {
-              i: module,
-              x: x,
-              y: itemY,
-              w: 6,
-              h: 4,
-              minW: 2,
-              minH: 2
-            };
-          });
-          
-          localStorage.setItem('dashboardLayout', JSON.stringify(layoutItems.value));
-          gridLoaded.value = true;
+            if (Array.isArray(savedLayout) && savedLayout.length > 0) {
+              console.log('Using saved layout from localStorage');
+              
+              // Filter saved layout to only include active modules
+              const activeModuleSet = new Set(activeModules.value);
+              layoutItems.value = savedLayout.filter(item => activeModuleSet.has(item.i));
+              
+              // Add any missing active modules to layout
+              activeModules.value.forEach(module => {
+                if (!layoutItems.value.some(item => item.i === module) && 
+                    !minimizedModules.value.includes(module)) {
+                  console.log(`Adding missing module to layout: ${module}`);
+                  // Find next available position
+                  const x = layoutItems.value.length % 2 === 0 ? 0 : 6;
+                  const y = Math.floor(layoutItems.value.length / 2) * 4;
+                  layoutItems.value.push({ i: module, x, y, w: 6, h: 4, minW: 2, minH: 2 });
+                }
+              });
+              
+              gridLoaded.value = true;
+              layoutInitialized.value = true;
+              return; // Exit early, we loaded a saved layout
+            }
+          } catch (e) {
+            console.error('Error parsing saved layout, will use default:', e);
+            localStorage.removeItem('dashboardLayout'); // Clear corrupt data
+          }
         }
+        
+        // If we get here, either there was no saved layout or it failed to load
+        // Create default layout
+        setupDefaultLayout();
+        layoutInitialized.value = true;
+        
       } catch (e) {
         console.error('Error setting up layout:', e);
         layoutError.value = true;
+        gridLoaded.value = false;
       }
     };
     
@@ -251,48 +370,40 @@ export default {
     onMounted(() => {
       console.log('Dashboard view mounted');
       
-      // First clear any potentially corrupted layout data
-      try {
-        // Try to parse saved layout - if it fails, it's corrupted
-        const savedLayout = localStorage.getItem('dashboardLayout');
-        if (savedLayout) {
-          JSON.parse(savedLayout);
-        }
-        
-        // Also check dashboard pages
-        const savedPages = localStorage.getItem('dashboardPages');
-        if (savedPages) {
-          JSON.parse(savedPages);
-        }
-      } catch (e) {
-        console.error('Found corrupted layout data, resetting...', e);
-        localStorage.removeItem('dashboardLayout');
-        localStorage.removeItem('dashboardPages');
-        localStorage.removeItem('currentDashboardPage');
-      }
-      
       // Wait for modules to register
-      const checkModules = setInterval(() => {
+      const checkModulesInterval = setInterval(() => {
         if (activeModules.value.length > 0) {
           console.log(`Modules registered: ${activeModules.value.join(', ')}`);
-          clearInterval(checkModules);
+          clearInterval(checkModulesInterval);
+          
+          // Set up layout once modules are available
           setupLayout();
           store.dispatch('global/refreshAll');
         }
-      }, 200);
+      }, 100);
       
       // Safety timeout after 3 seconds
-      setTimeout(() => {
-        clearInterval(checkModules);
-        if (activeModules.value.length === 0) {
+      const safetyTimeout = setTimeout(() => {
+        clearInterval(checkModulesInterval);
+        if (!gridLoaded.value && activeModules.value.length > 0) {
+          console.warn('Timeout reached. Forcing layout setup.');
+          setupLayout();
+          store.dispatch('global/refreshAll');
+        } else if (activeModules.value.length === 0) {
           console.error('No modules registered after timeout');
           layoutError.value = true;
-        } else {
-          setupLayout();
         }
       }, 3000);
+      
+      // Cleanup on unmount
+      onUnmounted(() => {
+        clearInterval(checkModulesInterval);
+        clearTimeout(safetyTimeout);
+        document.removeEventListener('mousemove', handleResize);
+        document.removeEventListener('mouseup', stopResize);
+      });
     });
-    
+
     return {
       isLoading,
       error,
