@@ -154,13 +154,20 @@ const getters = {
   lastUpdated: state => state.lastUpdated,
   selectedContainer: state => state.selectedContainer,
   getContainerById: state => id => {
-    return state.containers.find(c => c.id === id);
+    // Assuming the API response uses 'ID' (uppercase) based on curl output
+    return state.containers.find(c => c.ID === id); 
   },
+  // Corrected filter to use 'State' (uppercase) based on API response
   runningContainers: state => {
-    return state.containers.filter(c => c.state === 'running');
+    return state.containers.filter(c => c.State === 'running');
   },
+  // Added getter for total container count
+  containerCount: state => state.containers.length, 
+  // Added getter for running container count
+  runningCount: (state, getters) => getters.runningContainers.length, 
   stoppedContainers: state => {
-    return state.containers.filter(c => c.state !== 'running');
+    // Corrected filter to use 'State' (uppercase)
+    return state.containers.filter(c => c.State !== 'running');
   }
 };
 
