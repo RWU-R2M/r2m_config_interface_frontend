@@ -146,14 +146,23 @@ const actions = {
       }
     };
     
-    // Group modules by priority to stagger API requests
-    // High priority modules refresh first
-    const highPriorityModules = ['system']; // System data is used by other modules
-    const normalPriorityModules = state.activeModules.filter(
-      module => module !== 'global' && !highPriorityModules.includes(module)
+    // Group modules by priority and refresh strategy
+    // System data is fetched first as it's used by other modules
+    const highPriorityModules = ['system']; 
+    
+    // Some modules share data sources, so we can optimize them
+    const sharedDataGroups = {
+      scripts: ['scripts'], // scripts module also loads processes data
+      docker: ['docker']
+    };
+    
+    // Get modules that need individual refresh and aren't in other groups
+    const individualModules = state.activeModules.filter(
+      module => module !== 'global' && 
+                !highPriorityModules.includes(module) &&
+                !Object.values(sharedDataGroups).flat().includes(module)
     );
     
-    // Process high priority modules first
     const refreshModule = (module) => {
       try {
         // Use Promise.resolve to handle both synchronous and asynchronous dispatch results
@@ -191,10 +200,46 @@ const actions = {
         });
     };
     
-    // Start with high priority modules, then process others with a small delay
+    // Process modules in sequence with optimized grouping
     Promise.resolve()
+      // First load high priority modules (system)
       .then(() => processWithDelay(highPriorityModules, 0))
-      .then(() => processWithDelay(normalPriorityModules, 100)); // 100ms delay between normal priority requests
+      // Then load shared data groups one by one with a small delay
+      .then(() => {
+        // Process each shared data group
+        const processGroups = (groupKeys) => {
+          if (groupKeys.length === 0) return Promise.resolve();
+          
+          const [currentKey, ...remainingKeys] = groupKeys;
+          const modules = sharedDataGroups[currentKey].filter(
+            module => state.activeModules.includes(module)
+          );
+          
+          // Only process this group if it has active modules
+          if (modules.length > 0) {
+            // Only process the first module in each group since it loads shared data
+            return refreshModule(modules[0])
+              .then(() => {
+                // Mark all modules in this group as completed
+                modules.slice(1).forEach(() => checkCompletion());
+                
+                // Process next group after a delay
+                return new Promise(resolve => {
+                  setTimeout(() => {
+                    resolve(processGroups(remainingKeys));
+                  }, 100);
+                });
+              });
+          } else {
+            // Skip this group and move to the next
+            return processGroups(remainingKeys);
+          }
+        };
+        
+        return processGroups(Object.keys(sharedDataGroups));
+      })
+      // Finally load remaining individual modules with a small delay
+      .then(() => processWithDelay(individualModules, 200));
   },
   
   setRefreshInterval({ commit }, interval) {

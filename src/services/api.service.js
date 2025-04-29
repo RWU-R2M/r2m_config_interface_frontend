@@ -12,19 +12,23 @@ const apiClient = axios.create({
   }
 });
 
+// In-flight requests cache to prevent duplicate simultaneous calls
+const pendingRequests = {};
+
 // Cache mechanism for API responses
 const cache = {
   data: {},
   timestamps: {},
-  maxAge: 5000, // Default max age for cache entries (5 seconds)
-
+  maxAge: 10000, // Increased default max age to 10 seconds
+  
   // Get a value from cache if it exists and is not expired
-  get(key) {
+  get(key, customMaxAge) {
     const timestamp = this.timestamps[key];
     if (!timestamp) return null;
     
+    const maxAge = customMaxAge || this.maxAge;
     const age = Date.now() - timestamp;
-    if (age > this.maxAge) return null;
+    if (age > maxAge) return null;
     
     return this.data[key];
   },
@@ -34,8 +38,8 @@ const cache = {
     this.data[key] = value;
     this.timestamps[key] = Date.now();
     if (customMaxAge) {
-      // Allow per-request cache duration
-      this.maxAge = customMaxAge;
+      // Store custom max age per key
+      this.data[`${key}_maxAge`] = customMaxAge;
     }
   },
 
@@ -43,11 +47,23 @@ const cache = {
   clear(key) {
     if (key) {
       delete this.data[key];
+      delete this.data[`${key}_maxAge`];
       delete this.timestamps[key];
     } else {
       this.data = {};
       this.timestamps = {};
     }
+  },
+  
+  // Check if cache is still valid
+  isValid(key, customMaxAge) {
+    const timestamp = this.timestamps[key];
+    if (!timestamp) return false;
+    
+    const storedMaxAge = this.data[`${key}_maxAge`] || this.maxAge;
+    const maxAge = customMaxAge || storedMaxAge;
+    const age = Date.now() - timestamp;
+    return age <= maxAge;
   }
 };
 
@@ -75,10 +91,13 @@ export async function pingApi() {
   }
 }
 
-// Request interceptor for API calls
+// Request interceptor for API calls - improve logging
 apiClient.interceptors.request.use(
   config => {
-    console.log(`API Request: ${config.method.toUpperCase()} ${config.baseURL}${config.url}`);
+    // Only log when not in production
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`API Request: ${config.method.toUpperCase()} ${config.baseURL}${config.url}`);
+    }
     return config;
   },
   error => {
@@ -87,10 +106,13 @@ apiClient.interceptors.request.use(
   }
 );
 
-// Response interceptor for API calls
+// Response interceptor for API calls - improve logging
 apiClient.interceptors.response.use(
   response => {
-    console.log(`API Response: ${response.status} ${response.config.method.toUpperCase()} ${response.config.url}`);
+    // Only log when not in production
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`API Response: ${response.status} ${response.config.method.toUpperCase()} ${response.config.url}`);
+    }
     return response;
   },
   async error => {
@@ -107,30 +129,52 @@ apiClient.interceptors.response.use(
   }
 );
 
-// Generic CRUD methods with optional caching
+// Generic CRUD methods with improved caching and deduplication
 export default {
   async get(endpoint, useCache = false, cacheMaxAge = null) {
     try {
       // Ensure endpoint starts with a slash
       const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
       
+      // Use deduplication for in-flight requests
+      if (pendingRequests[path]) {
+        console.log(`Reusing in-flight request for ${path}`);
+        return pendingRequests[path];
+      }
+      
       // Check cache if enabled
       if (useCache) {
-        const cachedData = cache.get(path);
+        const cachedData = cache.get(path, cacheMaxAge);
         if (cachedData) {
           console.log(`Using cached data for ${path}`);
           return cachedData;
         }
       }
       
-      const response = await apiClient.get(path);
+      // Create a promise for this request and store it
+      const requestPromise = new Promise(async (resolve, reject) => {
+        try {
+          const response = await apiClient.get(path);
+          
+          // Store in cache if enabled
+          if (useCache) {
+            cache.set(path, response.data, cacheMaxAge);
+          }
+          
+          resolve(response.data);
+        } catch (error) {
+          console.error(`GET ${endpoint} failed:`, error);
+          reject(error);
+        } finally {
+          // Remove from pending requests
+          delete pendingRequests[path];
+        }
+      });
       
-      // Store in cache if enabled
-      if (useCache) {
-        cache.set(path, response.data, cacheMaxAge);
-      }
+      // Store the promise
+      pendingRequests[path] = requestPromise;
       
-      return response.data;
+      return requestPromise;
     } catch (error) {
       console.error(`GET ${endpoint} failed:`, error);
       throw error;
@@ -258,11 +302,11 @@ export default {
   },
   
   // System specific methods - make sure to use leading slashes
-  async getSystemStatus(useCache = true, maxAge = 5000) {
+  async getSystemStatus(useCache = true, maxAge = 10000) {
     return this.get('/system', useCache, maxAge);
   },
   
-  async getNetworkInfo(useCache = true, maxAge = 5000) {
+  async getNetworkInfo(useCache = true, maxAge = 10000) {
     return this.get('/system/network', useCache, maxAge);
   },
   
