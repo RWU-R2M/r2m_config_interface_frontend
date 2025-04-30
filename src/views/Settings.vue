@@ -96,7 +96,7 @@ export default {
     
     // Get available modules from registry
     const availableModules = computed(() => {
-      const registry = moduleRegistry.default.getRegistry();
+      const registry = moduleRegistry.getRegistry();
       return Object.values(registry).map(module => ({
         name: module.name,
         title: module.title || module.name
