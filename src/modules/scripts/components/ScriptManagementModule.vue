@@ -22,29 +22,21 @@
       </div>
       
       <div v-else>
-        <!-- Scripts List -->
-        <div class="tabs is-boxed">
-          <ul>
-            <li 
-              v-for="script in scripts" 
-              :key="script.id || script.name"
-              :class="{ 'is-active': selectedScript && (selectedScript.id === script.id || selectedScript.name === script.name) }"
-              @click="selectScript(script)"
-            >
-              <a>
-                <span class="icon is-small">
-                  <i class="fas fa-file-code"></i>
-                </span>
-                <span>{{ script.name }}</span>
-              </a>
-            </li>
-          </ul>
+        <!-- Button to open script selection modal -->
+        <div class="field">
+          <button class="button is-link" @click="isScriptModalActive = true">
+            <span class="icon is-small">
+              <i class="fas fa-file-code"></i>
+            </span>
+            <span>Select Script</span>
+          </button>
         </div>
-        
+
         <!-- Selected Script Details -->
-        <div v-if="selectedScript" class="script-details">
+        <div v-if="selectedScript" class="script-details mt-4">
           <div class="field">
             <label class="label">{{ selectedScript.name }}</label>
+            <p class="help">{{ selectedScript.script_path }}</p> <!-- Display path -->
             <p>{{ selectedScript.description }}</p>
           </div>
           
@@ -165,6 +157,44 @@
       </div>
     </div>
     
+    <!-- Script Selection Modal -->
+    <div class="modal" :class="{ 'is-active': isScriptModalActive }">
+      <div class="modal-background" @click="isScriptModalActive = false"></div>
+      <div class="modal-card">
+        <header class="modal-card-head">
+          <p class="modal-card-title">Select Script</p>
+          <button class="delete" aria-label="close" @click="isScriptModalActive = false"></button>
+        </header>
+        <section class="modal-card-body">
+          <!-- Search Input -->
+          <div class="field">
+            <div class="control has-icons-left">
+              <input class="input" type="text" placeholder="Search scripts by name or path..." v-model="searchTerm">
+              <span class="icon is-small is-left">
+                <i class="fas fa-search"></i>
+              </span>
+            </div>
+          </div>
+          <!-- Script List -->
+          <div class="list has-hoverable-list-items script-list-container">
+             <a v-for="script in filteredScripts" 
+                :key="script.id || script.name" 
+                class="list-item" 
+                :class="{ 'is-active': selectedScript && (selectedScript.id === script.id || selectedScript.name === script.name) }"
+                @click="handleScriptSelect(script)">
+                <div class="list-item-content">
+                   <div class="list-item-title">{{ script.name }}</div>
+                   <div class="list-item-description">{{ script.script_path }}</div>
+                </div>
+             </a>
+             <div v-if="filteredScripts.length === 0" class="list-item">
+                No scripts found matching "{{ searchTerm }}".
+             </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
     <!-- Process Details Modal -->
     <div class="modal" :class="{ 'is-active': selectedProcess }">
       <div class="modal-background" @click="closeProcessDetails"></div>
@@ -234,7 +264,9 @@ export default {
     const store = useStore();
     const scriptParams = ref({});
     const selectedProcess = ref(null);
-    
+    const isScriptModalActive = ref(false); // Control modal visibility
+    const searchTerm = ref(''); // Search term for filtering scripts
+
     // Computed properties from store
     const scripts = computed(() => store.getters['scripts/scripts']);
     const processes = computed(() => store.getters['scripts/processes']);
@@ -243,6 +275,18 @@ export default {
     const error = computed(() => store.getters['scripts/error']);
     const selectedScript = computed(() => store.getters['scripts/selectedScript']);
     const scriptOutput = computed(() => store.getters['scripts/scriptOutput']);
+
+    // Filtered scripts based on search term
+    const filteredScripts = computed(() => {
+      if (!searchTerm.value) {
+        return scripts.value;
+      }
+      const lowerSearchTerm = searchTerm.value.toLowerCase();
+      return scripts.value.filter(script => 
+        (script.name && script.name.toLowerCase().includes(lowerSearchTerm)) ||
+        (script.script_path && script.script_path.toLowerCase().includes(lowerSearchTerm))
+      );
+    });
     
     // Format the output with newlines converted to <br>
     const formattedOutput = computed(() => {
@@ -254,6 +298,7 @@ export default {
         : JSON.stringify(scriptOutput.value, null, 2);
       
       return outputStr
+        .replace(/\\n/g, '<br>') // Handle escaped newlines if present
         .replace(/\n/g, '<br>')
         .replace(/ /g, '&nbsp;');
     });
@@ -261,7 +306,8 @@ export default {
     // Format process output for HTML display
     const formatProcessOutput = (output) => {
       if (!output) return '';
-      return output
+      return String(output) // Ensure output is a string
+        .replace(/\\n/g, '<br>') // Handle escaped newlines if present
         .replace(/\n/g, '<br>')
         .replace(/ /g, '&nbsp;');
     };
@@ -269,8 +315,17 @@ export default {
     // Format date for display
     const formatDate = (dateString) => {
       if (!dateString) return 'N/A';
-      const date = new Date(dateString);
-      return date.toLocaleString();
+      try {
+        const date = new Date(dateString);
+        // Check if date is valid
+        if (isNaN(date.getTime())) {
+          return 'Invalid Date';
+        }
+        return date.toLocaleString();
+      } catch (e) {
+        console.error("Error formatting date:", dateString, e);
+        return 'Invalid Date';
+      }
     };
     
     // Script actions
@@ -278,8 +333,10 @@ export default {
       store.dispatch('scripts/fetchData');
     };
     
-    const selectScript = (script) => {
+    // Renamed original selectScript to handleScriptSelect to avoid naming conflict
+    const handleScriptSelect = (script) => {
       store.dispatch('scripts/selectScript', script);
+      isScriptModalActive.value = false; // Close modal after selection
       // Clear any previous parameters
       scriptParams.value = {};
       
@@ -324,11 +381,13 @@ export default {
         if (details) {
           selectedProcess.value = details;
         } else {
-          selectedProcess.value = process;
+          // If details fetch fails, show the basic info from the list
+          selectedProcess.value = { ...process }; 
         }
       } catch (error) {
+        console.error("Error fetching process details, showing basic info:", error);
         // Fall back to the process from the list
-        selectedProcess.value = process;
+        selectedProcess.value = { ...process };
       }
     };
     
@@ -358,8 +417,11 @@ export default {
       formattedOutput,
       scriptParams,
       selectedProcess,
+      isScriptModalActive, // Expose modal state
+      searchTerm,          // Expose search term
+      filteredScripts,     // Expose filtered scripts
       refreshData,
-      selectScript,
+      handleScriptSelect,  // Expose the selection handler
       executeScript,
       viewProcessDetails,
       closeProcessDetails,
@@ -385,12 +447,13 @@ export default {
   padding: 1rem;
   border-radius: 4px;
   overflow-y: auto;
-  max-height: 200px;
+  max-height: 200px; /* Keep output height reasonable */
   white-space: pre-wrap;
+  word-wrap: break-word; /* Ensure long lines wrap */
 }
 
 .table-container {
-  max-height: 200px;
+  max-height: 200px; /* Keep process list height reasonable */
   overflow-y: auto;
 }
 
@@ -398,5 +461,24 @@ export default {
   height: 2em;
   padding-left: 0.5em;
   padding-right: 0.5em;
+}
+
+/* Style for the script list in the modal */
+.script-list-container {
+  max-height: 40vh; /* Limit height of the list */
+  overflow-y: auto; /* Add scrollbar if needed */
+  border: 1px solid #dbdbdb; /* Add border */
+  border-radius: 4px;
+}
+
+.list-item {
+  border-bottom: 1px solid #eee; /* Separator */
+}
+.list-item:last-child {
+  border-bottom: none;
+}
+.list-item-description {
+  font-size: 0.85em;
+  color: #7a7a7a;
 }
 </style>

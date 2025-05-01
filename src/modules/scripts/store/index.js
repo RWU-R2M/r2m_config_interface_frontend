@@ -74,7 +74,8 @@ const mutations = {
     state.scriptOutput = output;
   },
   APPEND_SCRIPT_OUTPUT(state, output) {
-    state.scriptOutput += output;
+    // Corrected to append using += instead of =
+    state.scriptOutput += output; 
   },
   CLEAR_SCRIPT_OUTPUT(state) {
     state.scriptOutput = '';
