@@ -5,6 +5,9 @@ import { createStore } from 'vuex';
 
 // Create a mock store
 function createMockStore() {
+  // Mock the fetchData action
+  const mockFetchData = vi.fn();
+
   return createStore({
     modules: {
       system: {
@@ -41,6 +44,10 @@ function createMockStore() {
           isLoading: state => state.isLoading,
           error: state => state.error,
           lastUpdated: state => state.lastUpdated
+        },
+        // Add mock actions
+        actions: {
+          fetchData: mockFetchData
         }
       }
     }
@@ -57,5 +64,7 @@ describe('SystemStatusModule', () => {
       }
     });
     expect(wrapper.exists()).toBe(true);
+    // Optionally, you could assert if the action was called if the component calls it on mount
+    // expect(store._modulesNamespaceMap['system/'].context.actions.fetchData).toHaveBeenCalled();
   });
 });
